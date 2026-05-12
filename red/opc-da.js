@@ -228,11 +228,11 @@ module.exports = function (RED) {
                 //cleanup groups first
                 console.log("Cleaning groups...");
                 for (const group of groups.values()) {
-                    //await group.cleanUp();
+                    await group.cleanUp();
                 }
                 console.log("Cleaned Groups");
                 if (opcServer) {
-                    //await opcServer.end();
+                    await opcServer.end();
                     opcServer = null;
                 }
                 console.log("Cleaned opcServer");
@@ -330,11 +330,12 @@ module.exports = function (RED) {
         let readInProgress = false;
         let connected = false;
         let readDeferred = 0;
-        let oldItems = {};
+        let oldItems = new Map();  // Map instead of plain object for GC efficiency
         let updateRate = parseInt(config.updaterate);
         let deadband = parseInt(config.deadband);
         let validate = config.validate;
         let onCleanUp = false;
+        let cycleLock = false;  // concurrency lock to prevent task stacking
 
         if (isNaN(updateRate)) {
             updateRate = 1000;
@@ -451,22 +452,17 @@ module.exports = function (RED) {
         }
 
         async function doCycle() {
-            if (connected && !readInProgress) {
-                if (!serverHandles.length) return;
+            if (!connected || readInProgress || cycleLock) return;
+            if (!serverHandles.length) return;
 
-                readInProgress = true;
-                readDeferred = 0;
+            cycleLock = true;
+            readInProgress = true;
+            readDeferred = 0;
+            try {
                 await opcSyncIo.read(opcda.constants.opc.dataSource.DEVICE, serverHandles)
                     .then(cycleCallback).catch(cycleError);
-            } else {
-                readDeferred++;
-                if (readDeferred > 15) {
-                    node.warn(RED._("opc-da.error.noresponse"), {});
-                    clearInterval(timer);
-                    // since we have no good way to know if there is a network problem
-                    // or if something else happened, restart the whole thing
-                    node.server.reConnect();
-                }
+            } finally {
+                cycleLock = false;
             }
         }
 
@@ -477,28 +473,28 @@ module.exports = function (RED) {
                 doCycle();
                 readDeferred = 0;
             }
-            //sanitizeValues(values);
+
             let changed = false;
             for (const item of values) {
                 const itemID = clientHandles[item.clientHandle];
                 
                 if (!itemID) {
-                    //TODO - what is the right to do here?
-                    node.warn("Server replied with an unknown client handle");
                     continue;
                 }
 
-                let oldItem = oldItems[itemID];
+                let oldItem = oldItems.get(itemID);
                 
                 if (!oldItem || oldItem.quality !== item.quality || !equals(oldItem.value, item.value)) {
                     changed = true;
                     node.emit(itemID, item);
                     node.emit('__CHANGED__', { itemID, item });
                 }
-                oldItems[itemID] = item;
+                oldItems.set(itemID, item);
             }
-            node.emit('__ALL__', oldItems);
+            // Only emit per-item and changed events, NOT the full oldItems object
             if (changed) node.emit('__ALL_CHANGED__', oldItems);
+            // Only emit __ALL__ if there are listeners (non-diff mode)
+            if (node.listenerCount('__ALL__') > 0) node.emit('__ALL__', oldItems);
         }
 
         function cycleError(err) {
@@ -570,14 +566,26 @@ module.exports = function (RED) {
             let msg;
             if (key === '') { //should be the case when mode == 'all'
                 let newData = new Array();
-                for (let key in data) {
-                    newData.push({
-                        errorCode: data[key].errorCode,
-                        value: data[key].value,
-                        quality: data[key].quality,
-                        timestamp: data[key].timestamp,
-                        topic: key
+                if (data instanceof Map) {
+                    data.forEach(function (value, mapKey) {
+                        newData.push({
+                            errorCode: value.errorCode,
+                            value: value.value,
+                            quality: value.quality,
+                            timestamp: value.timestamp,
+                            topic: mapKey
+                        });
                     });
+                } else {
+                    for (let k in data) {
+                        newData.push({
+                            errorCode: data[k].errorCode,
+                            value: data[k].value,
+                            quality: data[k].quality,
+                            timestamp: data[k].timestamp,
+                            topic: k
+                        });
+                    }
                 }
 
                 msg = {
@@ -615,9 +623,16 @@ module.exports = function (RED) {
         }
 
         function onDataSplit(data) {
-            Object.keys(data).forEach(function (key) {
-                sendMsg(data[key], key, null);
-            });
+            // data can be Map (from __ALL__) or object
+            if (data instanceof Map) {
+                data.forEach(function (value, key) {
+                    sendMsg(value, key, null);
+                });
+            } else {
+                Object.keys(data).forEach(function (key) {
+                    sendMsg(data[key], key, null);
+                });
+            }
         }
 
         function onData(data) {
@@ -625,7 +640,11 @@ module.exports = function (RED) {
         }
 
         function onDataSelect(data) {
-            onData(data[config.item]);
+            if (data instanceof Map) {
+                onData(data.get(config.item));
+            } else {
+                onData(data[config.item]);
+            }
         }
 
         function onGroupStatus(s) {
