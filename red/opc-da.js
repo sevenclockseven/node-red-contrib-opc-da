@@ -205,12 +205,15 @@ module.exports = function (RED) {
                 node.error(RED._("opc-da.error.accessdenied"));
             });
 
+            console.log("[OPC-DA] Step 1: comServer.init()...");
             await comServer.init();
-            
+            console.log("[OPC-DA] Step 2: comServer.createInstance()...");
             comObject = await comServer.createInstance();
-
+            console.log("[OPC-DA] Step 3: new OPCServer()...");
             opcServer = new opcda.OPCServer();
+            console.log("[OPC-DA] Step 4: opcServer.init()...");
             await opcServer.init(comObject);
+            console.log("[OPC-DA] OPC Server initialized successfully");
             for (const entry of groups.entries()) {
                 const name = entry[0];
                 const group = entry[1];
