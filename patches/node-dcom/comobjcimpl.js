@@ -53,6 +53,25 @@ class ComObjectImpl extends events.EventEmitter
   async queryInterface(iid)
   {
     this.checkLocal();
+    // Short-circuit: if requested IID matches current interface pointer's IID,
+    // skip IRemUnknown::RemQueryInterface which fails on non-standard DCOM
+    // implementations (e.g. ABB Freelance 2000 returns empty/truncated response).
+    // The remote activation already returned this interface.
+    if (this.ptr && typeof this.ptr.getIID === 'function') {
+      try {
+        let currentIID = this.ptr.getIID();
+        if (currentIID && currentIID.toLowerCase() === iid.toLowerCase()) {
+          try {
+            await this.addRef();
+          } catch(e) {
+            // addRef may fail (E_ACCESSDENIED on some servers), continue anyway
+          }
+          return this;
+        }
+      } catch(e) {
+        // if getIID fails, fall through to normal path
+      }
+    }
     return await this.session.getStub().getInterface(iid, this.ptr.getIPID());
   }
 
