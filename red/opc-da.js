@@ -113,8 +113,13 @@ module.exports = function (RED) {
             await opcServer.init(comObject);
             console.log("[OPC-DA Browse] Step 3 OK");
 
+            console.log("[OPC-DA Browse] Step 4: getBrowser()...");
             let opcBrowser = await opcServer.getBrowser();
+            console.log("[OPC-DA Browse] Step 4 OK");
+
+            console.log("[OPC-DA Browse] Step 5: browseAllFlat()...");
             let items = await opcBrowser.browseAllFlat();
+            console.log("[OPC-DA Browse] Step 5 OK, items:", items.length);
 
             // don't need to await it, so we can return immediately
             opcBrowser.end()
