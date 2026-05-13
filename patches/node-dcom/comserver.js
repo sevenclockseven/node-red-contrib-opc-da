@@ -47,7 +47,7 @@ class ComServer extends Stub {
     this.callType = 0;
     
     // we can create a server with different types of arguments
-    if (arguments.length >= 3) {
+    if (arguments.length == 3) {
       if (arguments[0] instanceof Session){
         this.callType = 0;
       } else if (arguments[0] instanceof Stub) {
@@ -428,7 +428,11 @@ class ComServer extends Stub {
       comObject.setIsDual(false);
     }
 
-    await comObject.addRef();
+    try {
+      await comObject.addRef();
+    } catch(e) {
+      debug("ComServer.createInstance: addRef failed (" + e + "), continuing anyway");
+    }
     this.serverInstantiated = true;
 
     return comObject;
@@ -455,7 +459,11 @@ class ComServer extends Stub {
 
     retVal = await FrameworkHelper.instantiateComObject(this.session, reqUnknown.getInterfacePointer());
     
-    await retVal.addRef();
+    try {
+      await retVal.addRef();
+    } catch(e) {
+      debug("ComServer.getInterface: addRef failed (" + e + "), continuing anyway");
+    }
 
     // this part is only relevant when Dispatch suport is implemented
     if (iid.toLowerCase() == "00020400-0000-0000-c000-000000000046") {

@@ -49,6 +49,11 @@ function doPatch(dcomRoot) {
             src: path.join(patchSrcDir, 'comobjcimpl.js'),
             dst: path.join(dcomRoot, 'dcom', 'core', 'comobjcimpl.js'),
             name: 'comobjcimpl.js (getResultAsIntAt fix)'
+        },
+        {
+            src: path.join(patchSrcDir, 'frameworkhelper.js'),
+            dst: path.join(dcomRoot, 'dcom', 'core', 'frameworkhelper.js'),
+            name: 'frameworkhelper.js (addRef non-fatal)'
         }
     ];
 
