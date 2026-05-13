@@ -49,11 +49,6 @@ function doPatch(dcomRoot) {
             src: path.join(patchSrcDir, 'comobjcimpl.js'),
             dst: path.join(dcomRoot, 'dcom', 'core', 'comobjcimpl.js'),
             name: 'comobjcimpl.js (getResultAsIntAt fix)'
-        },
-        {
-            src: path.join(patchSrcDir, 'ntlmconnection.js'),
-            dst: path.join(dcomRoot, 'dcom', 'rpc', 'security', 'ntlmconnection.js'),
-            name: 'ntlmconnection.js (protection level fix for ABB)'
         }
     ];
 
