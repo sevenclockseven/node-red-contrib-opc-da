@@ -95,7 +95,7 @@ module.exports = function (RED) {
             let session = new Session();
             session = session.createSession(params.domain, params.username, params.password);
             session.setGlobalSocketTimeout(params.timeout);
-            session.useNTLMv2(true);
+            session.useNTLMv2 = true;
             
             let comServer = new ComServer(new Clsid(params.clsid), params.address, session, parseComVersion(params.comversion));
             
@@ -188,7 +188,7 @@ module.exports = function (RED) {
             let comSession = new Session();
             comSession = comSession.createSession(connOpts.domain, connOpts.username, connOpts.password);
             comSession.setGlobalSocketTimeout(connOpts.timeout);
-            comSession.useNTLMv2(true);
+            comSession.useNTLMv2 = true;
             
             comServer = new ComServer(new Clsid(connOpts.clsid), connOpts.address, comSession, connOpts.comversion);
             
