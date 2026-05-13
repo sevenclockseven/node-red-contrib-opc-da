@@ -15,6 +15,10 @@ const patches = [
     {
         src: path.join(__dirname, 'node-dcom', 'type3message.js'),
         dst: path.join(__dirname, '..', 'node_modules', 'node-dcom', 'dcom', 'rpc', 'security', 'messages', 'type3message.js')
+    },
+    {
+        src: path.join(__dirname, 'node-dcom', 'comserver.js'),
+        dst: path.join(__dirname, '..', 'node_modules', 'node-dcom', 'dcom', 'core', 'comserver.js')
     }
 ];
 
