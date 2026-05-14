@@ -4,6 +4,7 @@
  * Fixes NTLM authentication issues for Node.js 18+ compatibility.
  * Fixes ComServer constructor 4-arg bug (session.getStub is not a function).
  * Fixes comobjcimpl getResultAsIntAt bug (getResultAsIntAt is not a function).
+ * Adds RemActivation interface cache to bypass IRemUnknown (not supported by ABB Freelance).
  */
 
 const fs = require('fs');
@@ -54,6 +55,11 @@ function doPatch(dcomRoot) {
             src: path.join(patchSrcDir, 'frameworkhelper.js'),
             dst: path.join(dcomRoot, 'dcom', 'core', 'frameworkhelper.js'),
             name: 'frameworkhelper.js (addRef non-fatal)'
+        },
+        {
+            src: path.join(patchSrcDir, 'RemActivation.js'),
+            dst: path.join(dcomRoot, 'dcom', 'core', 'RemActivation.js'),
+            name: 'RemActivation.js (cache all interfaces from activation)'
         }
     ];
 

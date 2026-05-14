@@ -45,6 +45,7 @@ class ComServer extends Stub {
     this.address;
     this.args = arguments;
     this.callType = 0;
+    this.activationInterfaceMap = null;
     
     // we can create a server with different types of arguments
     if (arguments.length >= 3) {
@@ -301,9 +302,25 @@ class ComServer extends Stub {
     this.getEndpoint().getSyntax().setVersion(0,0);
     await this.getEndpoint().rebind(this.info);
 
-    this.serverActivation = new RemActivation(this.clsid,["39c13a4d-011e-11d0-9675-0020afd8adb3"]);
+    // Request all OPC DA interfaces during activation to avoid
+    // IRemUnknown::RemQueryInterface (unsupported by ABB Freelance 2000).
+    // Each returned InterfacePointer has the correct IPID for its IID.
+    let requestedIIDs = [
+      "39c13a4d-011e-11d0-9675-0020afd8adb3",  // IOPCServer
+      "39227004-A18F-4B57-8B0A-5235670F4468",  // IOPCBrowseServerAddressSpace
+      "f31dfde2-07b6-11d2-b2d8-0060083ba1fb",  // IOPCCommon
+      "85c0b427-2893-4cbc-bd78-e5fc5146f08f",  // IOPCItemIO
+      "39c13a72-011e-11d0-9675-0020afd8adb3",  // IOPCItemProperties
+      "39c13a54-011e-11d0-9675-0020afd8adb3",  // IOPCItemMgt
+      "39c13a52-011e-11d0-9675-0020afd8adb3",  // IOPCSyncIO
+    ];
+    this.serverActivation = new RemActivation(this.clsid, requestedIIDs);
     
     await super.call(this.endpoint.IDEMPOTENT, this.serverActivation, this.info);
+
+    if (this.serverActivation.activationsuccessful) {
+      this.activationInterfaceMap = this.serverActivation.getInterfaceMap();
+    }
 
     if (attachcomplete && this.serverActivation.activationsuccessful) {
       try {
@@ -445,7 +462,21 @@ class ComServer extends Stub {
    */
   async getInterface(iid, ipidOfTheTargetUnknown) {
     let retVal = null;
-    
+    let iidUpper = iid.toUpperCase();
+
+    // Check activation interface cache first — avoids IRemUnknown::RemQueryInterface
+    // which ABB Freelance 2000 does not support (returns truncated responses).
+    if (this.activationInterfaceMap && this.activationInterfaceMap.has(iidUpper)) {
+      let cachedPtr = this.activationInterfaceMap.get(iidUpper);
+      retVal = await FrameworkHelper.instantiateComObject(this.session, cachedPtr);
+      try {
+        await retVal.addRef();
+      } catch(e) {
+        debug("ComServer.getInterface (cached): addRef failed (" + e + "), continuing anyway");
+      }
+      return retVal;
+    }
+
     this.setObject(this.remunknownIPID);
 
     let reqUnknown = new RemUnknown(ipidOfTheTargetUnknown, iid, 5);

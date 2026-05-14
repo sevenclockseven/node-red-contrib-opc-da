@@ -73,36 +73,7 @@ class ComObjectImpl extends events.EventEmitter
       }
     }
 
-    try {
-      return await this.session.getStub().getInterface(iid, this.ptr.getIPID());
-    } catch(e) {
-      // IRemUnknown::RemQueryInterface failed (ABB Freelance limitation).
-      // Fallback: create a new InterfacePointer with the same IPID/OXID
-      // (StdObjRef) but the requested IID. This works when the server
-      // implements all interfaces on the same COM object (common for OPC DA).
-      try {
-        let InterfacePointerBody = require('./interfacepointerbody');
-        let InterfacePointer = require('./interfacepointer');
-        let Pointer = require('./pointer');
-
-        let newBody = new InterfacePointerBody(iid, this.ptr);
-        let newPtr = new InterfacePointer();
-        newPtr.member = new ComValue(
-          new Pointer(new ComValue(newBody, types.INTERFACEPOINTERBODY), false),
-          types.POINTER
-        );
-        let fallbackObj = new ComObjectImpl(this.session, newPtr);
-        try {
-          await fallbackObj.addRef();
-        } catch(addRefErr) {
-          // addRef may fail (E_ACCESSDENIED), continue
-        }
-        return fallbackObj;
-      } catch(fallbackErr) {
-        // Fallback failed too — throw the original error
-        throw e;
-      }
-    }
+    return await this.session.getStub().getInterface(iid, this.ptr.getIPID());
   }
 
   async addRef()
