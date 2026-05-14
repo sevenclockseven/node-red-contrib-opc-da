@@ -65,6 +65,11 @@ function doPatch(dcomRoot) {
             src: path.join(patchSrcDir, 'remunknown.js'),
             dst: path.join(dcomRoot, 'dcom', 'core', 'remunknown.js'),
             name: 'remunknown.js (hex dump for debugging)'
+        },
+        {
+            src: path.join(patchSrcDir, 'type1message.js'),
+            dst: path.join(dcomRoot, 'dcom', 'rpc', 'security', 'messages', 'type1message.js'),
+            name: 'type1message.js (fix NTLM flags operator bug + add ALWAYS_SIGN)'
         }
     ];
 

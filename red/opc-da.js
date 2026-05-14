@@ -142,13 +142,16 @@ module.exports = function (RED) {
                 items = await opcBrowser.browseAllFlat();
             } catch(browseErr) {
                 // If main connection browse fails (E_ACCESSDENIED on ABB Freelance)
-                // try a separate browse connection with full NTLM handshake
+                // try a separate browse connection with INTEGRITY protection level
+                // (modelled after Windows DCOM CoInitializeSecurity behavior)
                 if (!browseComObj) {
-                    console.log("[OPC-DA Browse] Step 5 failed on main, trying separate connection...");
+                    console.log("[OPC-DA Browse] Step 5 failed on main, trying separate connection (INTEGRITY)...");
                     let bSession = new Session();
                     bSession = bSession.createSession(params.domain, params.username, params.password);
                     bSession.setGlobalSocketTimeout(params.timeout);
                     bSession.useNTLMv2 = true;
+                    // Enable signing via patch-added session property
+                    bSession.protectionLevel = 5; // PROTECTION_LEVEL_INTEGRITY
                     let bServer = new ComServer(new Clsid(params.clsid), params.address, bSession, parseComVersion(params.comversion));
                     bServer.requestedIIDs = ["39c13a4f-011e-11d0-9675-0020afd8adb3"];
                     await bServer.init();
@@ -157,7 +160,7 @@ module.exports = function (RED) {
                     tempBrowser._comObj = browseComObj;
                     opcBrowser = tempBrowser;
                 }
-                console.log("[OPC-DA Browse] Step 5 retrying on separate connection...");
+                console.log("[OPC-DA Browse] Step 5 retrying on separate browse connection (INTEGRITY)...");
                 items = await opcBrowser.browseAllFlat();
             }
             console.log("[OPC-DA Browse] Step 5 OK, items:", items.length);
