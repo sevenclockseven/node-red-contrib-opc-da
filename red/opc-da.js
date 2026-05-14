@@ -114,11 +114,52 @@ module.exports = function (RED) {
             console.log("[OPC-DA Browse] Step 3 OK");
 
             console.log("[OPC-DA Browse] Step 4: getBrowser()...");
-            let opcBrowser = await opcServer.getBrowser();
-            console.log("[OPC-DA Browse] Step 4 OK");
+            let opcBrowser, browseComObj;
+            try {
+                opcBrowser = await opcServer.getBrowser();
+                console.log("[OPC-DA Browse] Step 4 OK (main connection)");
+            } catch(e) {
+                console.log("[OPC-DA Browse] Step 4: main QI failed, trying separate browse activation");
+                // Fallback: use separate connection for browsing
+                let bSession = new Session();
+                bSession = bSession.createSession(params.domain, params.username, params.password);
+                bSession.setGlobalSocketTimeout(params.timeout);
+                bSession.useNTLMv2 = true;
+                let bServer = new ComServer(new Clsid(params.clsid), params.address, bSession, parseComVersion(params.comversion));
+                bServer.requestedIIDs = ["39c13a4f-011e-11d0-9675-0020afd8adb3"];
+                await bServer.init();
+                let bObj = await bServer.createInstance();
+                let tempBrowser = new opcda.OPCBrowser();
+                tempBrowser._comObj = bObj;
+                opcBrowser = tempBrowser;
+                browseComObj = bObj;
+                console.log("[OPC-DA Browse] Step 4 OK (separate connection)");
+            }
 
             console.log("[OPC-DA Browse] Step 5: browseAllFlat()...");
-            let items = await opcBrowser.browseAllFlat();
+            let items;
+            try {
+                items = await opcBrowser.browseAllFlat();
+            } catch(browseErr) {
+                // If main connection browse fails (E_ACCESSDENIED on ABB Freelance)
+                // try a separate browse connection with full NTLM handshake
+                if (!browseComObj) {
+                    console.log("[OPC-DA Browse] Step 5 failed on main, trying separate connection...");
+                    let bSession = new Session();
+                    bSession = bSession.createSession(params.domain, params.username, params.password);
+                    bSession.setGlobalSocketTimeout(params.timeout);
+                    bSession.useNTLMv2 = true;
+                    let bServer = new ComServer(new Clsid(params.clsid), params.address, bSession, parseComVersion(params.comversion));
+                    bServer.requestedIIDs = ["39c13a4f-011e-11d0-9675-0020afd8adb3"];
+                    await bServer.init();
+                    browseComObj = await bServer.createInstance();
+                    let tempBrowser = new opcda.OPCBrowser();
+                    tempBrowser._comObj = browseComObj;
+                    opcBrowser = tempBrowser;
+                }
+                console.log("[OPC-DA Browse] Step 5 retrying on separate connection...");
+                items = await opcBrowser.browseAllFlat();
+            }
             console.log("[OPC-DA Browse] Step 5 OK, items:", items.length);
 
             // don't need to await it, so we can return immediately
