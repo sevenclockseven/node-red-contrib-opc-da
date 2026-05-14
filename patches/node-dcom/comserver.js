@@ -306,13 +306,14 @@ class ComServer extends Stub {
     // otherwise request all common OPC DA interfaces.
     let requestedIIDs = this.requestedIIDs || [
       "39c13a4d-011e-11d0-9675-0020afd8adb3",  // IOPCServer
-      "39c13a4f-011e-11d0-9675-0020afd8adb3",  // IOPCBrowseServerAddressSpace (OPC DA 2.0)
-      "39227004-A18F-4B57-8B0A-5235670F4468",  // IOPCBrowse (OPC DA 3.0)
+      "39c13a4f-011e-11d0-9675-0020afd8adb3",  // IOPCBrowseServerAddressSpace
+      "39c13a50-011e-11d0-9675-0020afd8adb3",  // IOPCGroupStateMgt
+      "39c13a54-011e-11d0-9675-0020afd8adb3",  // IOPCItemMgt
+      "39c13a52-011e-11d0-9675-0020afd8adb3",  // IOPCSyncIO
+      "39c13a70-011e-11d0-9675-0020afd8adb3",  // IOPCItemMgt (alt)
       "f31dfde2-07b6-11d2-b2d8-0060083ba1fb",  // IOPCCommon
       "85c0b427-2893-4cbc-bd78-e5fc5146f08f",  // IOPCItemIO
       "39c13a72-011e-11d0-9675-0020afd8adb3",  // IOPCItemProperties
-      "39c13a54-011e-11d0-9675-0020afd8adb3",  // IOPCItemMgt
-      "39c13a52-011e-11d0-9675-0020afd8adb3",  // IOPCSyncIO
     ];
     this.serverActivation = new RemActivation(this.clsid, requestedIIDs);
     
