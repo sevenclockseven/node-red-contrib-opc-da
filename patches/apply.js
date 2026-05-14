@@ -60,6 +60,11 @@ function doPatch(dcomRoot) {
             src: path.join(patchSrcDir, 'RemActivation.js'),
             dst: path.join(dcomRoot, 'dcom', 'core', 'RemActivation.js'),
             name: 'RemActivation.js (cache all interfaces from activation)'
+        },
+        {
+            src: path.join(patchSrcDir, 'remunknown.js'),
+            dst: path.join(dcomRoot, 'dcom', 'core', 'remunknown.js'),
+            name: 'remunknown.js (hex dump for debugging)'
         }
     ];
 
