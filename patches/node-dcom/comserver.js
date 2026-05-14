@@ -484,6 +484,9 @@ class ComServer extends Stub {
       console.log("[OPC-DA] getInterface: activationInterfaceMap is null");
     }
 
+    // IRemUnknown path — ABB Freelance returns truncated responses for interfaces
+    // it does not support (e.g. IOPCBrowseServerAddressSpace). Catch gracefully
+    // and throw a meaningful error instead of a cryptic RangeError.
     this.setObject(this.remunknownIPID);
 
     let reqUnknown = new RemUnknown(ipidOfTheTargetUnknown, iid, 5);
@@ -491,7 +494,12 @@ class ComServer extends Stub {
     try {
       await this.session.getStub2().call(Endpoint.IDEMPOTENT, reqUnknown, this.info, 5);
     } catch (e) {
-      debug("ComServer - getInterface: " + e);
+      debug("ComServer - getInterface (IRemUnknown): " + e);
+      let isRangeError = e instanceof RangeError;
+      let isUnknownPtr = e && e.message && e.message.indexOf("offset") !== -1;
+      if (isRangeError || isUnknownPtr) {
+        throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");
+      }
       throw new Error(e);
     }
 
