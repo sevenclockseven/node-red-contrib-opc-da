@@ -478,12 +478,18 @@ class ComServer extends Stub {
       }
     }
 
-    // Fall through to IRemUnknown
-    this.setObject(this.remunknownIPID);
+    // Fall through to IRemUnknown.
+    // CRITICAL: set the object UUID on stub2 (NOT on this/ComServer).
+    // Stub2's call() reads getObject() from its own instance. Without
+    // this UUID, some servers (ABB Freelance) won't route the call.
+    let stub2 = this.session.getStub2();
+    if (!stub2.getObject()) {
+      stub2.setObject(this.remunknownIPID);
+    }
     let reqUnknown = new RemUnknown(ipidOfTheTargetUnknown, iid, 5);
 
     try {
-      await this.session.getStub2().call(Endpoint.IDEMPOTENT, reqUnknown, this.info, this.session.getGlobalSocketTimeout());
+      await stub2.call(Endpoint.IDEMPOTENT, reqUnknown, this.info, this.session.getGlobalSocketTimeout());
     } catch (e) {
       debug("ComServer - getInterface: " + e);
       throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");

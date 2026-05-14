@@ -114,48 +114,8 @@ module.exports = function (RED) {
             console.log("[OPC-DA Browse] Step 3 OK");
 
             console.log("[OPC-DA Browse] Step 4: getBrowser()...");
-            let opcBrowser;
-            try {
-                opcBrowser = await opcServer.getBrowser();
-                console.log("[OPC-DA Browse] Step 4 OK");
-            } catch(e) {
-                // ABB Freelance doesn't support IOPCBrowseServerAddressSpace (OPC DA 2.0)
-                // but may support IOPCBrowse (OPC DA 3.0) with a different IID.
-                // Try a dedicated activation for the OPC DA 3.0 browse IID.
-                let browseIIDs = [
-                    "39227004-A18F-4B57-8B0A-5235670F4468",  // IOPCBrowse (OPC DA 3.0)
-                ];
-                // Also try the standard one as fallback
-                let opcBrowser_alt = null;
-                for (let tryIID of browseIIDs) {
-                    console.log("[OPC-DA Browse] trying alternate browse IID: " + tryIID);
-                    let browseSession = new Session();
-                    browseSession = browseSession.createSession(params.domain, params.username, params.password);
-                    browseSession.setGlobalSocketTimeout(params.timeout);
-                    browseSession.useNTLMv2 = true;
-                    let browseServer = new ComServer(new Clsid(params.clsid), params.address, browseSession, parseComVersion(params.comversion));
-                    browseServer.requestedIIDs = [tryIID];
-                    try {
-                        await browseServer.init();
-                    } catch(actErr) {
-                        console.log("[OPC-DA Browse] activation failed for " + tryIID + ": " + (actErr && actErr.toString ? actErr.toString() : actErr));
-                        continue;
-                    }
-                    if (browseServer.activationInterfaceMap && browseServer.activationInterfaceMap.size > 0) {
-                        let comObj = await browseServer.createInstance();
-                        opcBrowser_alt = new opcda.OPCBrowser();
-                        opcBrowser_alt._comObj = comObj;
-                        console.log("[OPC-DA Browse] found working browse IID: " + tryIID);
-                        break;
-                    }
-                }
-                if (opcBrowser_alt) {
-                    opcBrowser = opcBrowser_alt;
-                    console.log("[OPC-DA Browse] Step 4 OK (alternate browse activation)");
-                } else {
-                    throw new Error("Server does not support any known browse interface");
-                }
-            }
+            let opcBrowser = await opcServer.getBrowser();
+            console.log("[OPC-DA Browse] Step 4 OK");
 
             console.log("[OPC-DA Browse] Step 5: browseAllFlat()...");
             let items = await opcBrowser.browseAllFlat();
