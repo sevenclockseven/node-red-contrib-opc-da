@@ -209,12 +209,18 @@ class RemActivation extends NdrObject {
         let arrayObjs = array.getValue().getArrayInstance();
         this.mInterfacePointer = arrayObjs[0];
 
+        // Only treat second interface as IDispatch if it actually IS IDispatch.
+        // When requesting additional OPC interfaces during activation (e.g.
+        // IOPCBrowseServerAddressSpace), the second returned element may be
+        // a different interface entirely.
         if (arrayObjs[1] != null) {
-            this.isDual = true;
             let ptr = arrayObjs[1];
-            this.dispIpid = ptr.getIPID();
-            this.dispOid = ptr.getOID();
-            this.dispRefs = ptr.getObjectReference(new InterfacePointer().OBJREF_STANDARD).getPublicRefs();
+            if (ptr.getIID && ptr.getIID().toLowerCase() === "00020400-0000-0000-c000-000000000046") {
+                this.isDual = true;
+                this.dispIpid = ptr.getIPID();
+                this.dispOid = ptr.getOID();
+                this.dispRefs = ptr.getObjectReference(new InterfacePointer().OBJREF_STANDARD).getPublicRefs();
+            }
         }
 
         // Store all returned interface pointers by IID
