@@ -494,7 +494,7 @@ class ComServer extends Stub {
     try {
       let savedSyntax = this.syntax;
       this.syntax = "00000143-0000-0000-c000-000000000046:0.0";
-      await super.call(Endpoint.IDEMPOTENT, reqUnknown, this.info, 5);
+      await super.call(Endpoint.IDEMPOTENT, reqUnknown, this.info, this.session.getGlobalSocketTimeout());
       this.syntax = savedSyntax;
     } catch (e) {
       debug("ComServer - getInterface (IRemUnknown): " + e);
@@ -511,7 +511,7 @@ class ComServer extends Stub {
         this.object = null;
         let savedSyntax = this.syntax;
         this.syntax = "4d9f4ab8-7d1c-11cf-861e-0020af6e7c57:0.0";
-        await super.call(Endpoint.IDEMPOTENT, fallbackActivation, this.info, 5);
+        await super.call(Endpoint.IDEMPOTENT, fallbackActivation, this.info, this.session.getGlobalSocketTimeout());
         this.syntax = savedSyntax;
         if (fallbackActivation.isActivationSuccessful()) {
           let fallbackPtr = fallbackActivation.getMInterfacePointer();
