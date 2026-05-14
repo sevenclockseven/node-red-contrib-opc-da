@@ -1,6 +1,6 @@
 # node-red-contrib-opc-da 改造交接文档
 
-> 最后更新: 2026-05-13
+> 最后更新: 2026-05-14
 > 仓库: https://github.com/sevenclockseven/node-red-contrib-opc-da
 > 原版: https://github.com/st-one-io/node-red-contrib-opc-da (v1.0.3)
 
@@ -29,7 +29,7 @@ node-red-contrib-opc-da (v2.0.0)
 
 ---
 
-## 三、已修复的 Bug（共 10 个）
+## 三、已修复的 Bug（共 14 个）
 
 ### 3.1 NTLM 认证 bug（node-dcom/dcom/rpc/security/responses.js）
 | # | Bug | 修复 |
@@ -66,7 +66,27 @@ node-red-contrib-opc-da (v2.0.0)
 ### 3.6 NTLMv2 支持（red/opc-da.js）
 - Session 创建后设置 `session.useNTLMv2 = true`（注意：不能用 `session.useNTLMv2(true)`，因为方法名与属性名冲突，构造函数里 `this.useNTLMv2 = false` 会覆盖方法）
 
-### 3.7 OpenSSL 3.0 兼容
+### 3.7 NTLM Type1 消息 flags 运算符优先级 bug（type1message.js）
+| # | Bug | 修复 |
+|---|---|---|
+| 12 | `getDefaultFlags()` 中 `|` 优先级高于 `?:`，导致 flags 永远只返回 `0x01`（UNICODE），NTLM 和 VERSION 标志全丢 | 改为变量 + if/else |
+| 13 | 构造函数中无显式 flags 时，`getDefaultFlags()` 返回值被丢弃，flags 从未被设置 | 改为 `setFlags(defaultFlags)` |
+
+### 3.8 isDual 误判（RemActivation.js）
+| # | Bug | 修复 |
+|---|---|---|
+| 14 | 激活返回的第 2 个接口如果不是 IDispatch 但仍被标记为 `isDual=true`，导致 `releaseRef` 用错误的 IPID 调用 | 检查第二个接口的 IID 是否为 `00020400-...`（IDispatch），不是则不设 isDual |
+
+### 3.9 激活接口缓存（RemActivation.js + comserver.js）
+- 激活时请求所有 OPC DA 接口（IOPCServer, IOPCBrowseServerAddressSpace, IOPCCommon, IOPCItemProperties 等）
+- 返回的接口指针按 IID 存入 `Map<String, InterfacePointer>` 缓存
+- `ComServer.getInterface()` 先查缓存，命中则直接创建 ComObjectImpl，绕过 IRemUnknown
+
+### 3.10 IRemUnknown 走主连接（comserver.js）
+- 原代码通过 stub2（RemUnknownServer）调用 IRemUnknown，会创建**新 TCP 连接**，ABB Freelance 拒绝来自新连接的 IRemUnknown 请求（返回 E_ACCESSDENIED）
+- 改为通过 ComServer **已有的主连接**临时切换 syntax 到 IRemUnknown 发送请求
+
+### 3.11 OpenSSL 3.0 兼容
 - Node.js 18+ 的 OpenSSL 3.0 默认禁用 MD4 和 DES-ECB
 - **必须**设置环境变量：`NODE_OPTIONS=--openssl-legacy-provider`
 - 这不是代码能修的问题，必须靠环境变量
@@ -133,27 +153,107 @@ RangeError [ERR_OUT_OF_RANGE]: The value of "offset" is out of range. It must be
 
 ---
 
-## 六、已知限制
+## 六、AB Freelance DCOM 兼容性结论
+
+### 6.1 根本原因
+ABB Freelance 2000 的 DCOM 实现与 WinCC、iFix 等不同，对安全上下文的要求更严格：
+
+| 对比项 | WinCC / iFix | ABB Freelance |
+|--------|-------------|---------------|
+| 激活返回接口数 | 完整返回 | 只返回 4/9 |
+| IRemUnknown | ✅ 接受 | ❌ 必须走 Windows 原生 DCOM 安全上下文 |
+| AddGroup / 读写 | ✅ 接受 | ❌ E_ACCESSDENIED |
+
+纯 JS 的 `node-dcom` 库（基于 J-Interop 移植，最后更新 2019 年）无法完全模拟 Windows DCOM 的安全上下文协商细节，导致与 ABB Freelance 的互操作存在根本性局限。
+
+### 6.2 推荐方案：OpenOPC HTTP 桥接
+
+在 ABB OPC Server 所在的 Windows 机器上利用已有的 **OpenOPC 1.3.1**（Python 2.7）加一层 HTTP 桥，Node-RED 通过 HTTP GET 读取数据。
+
+**架构：**
+```
+ABB Freelance OPC Server (Windows)
+    ↕ Windows 原生 DCOM（ABB 兼容）
+OpenOPC 1.3.1 (Python 2.7)
+    ↕ HTTP (Flask, 端口 5000)
+Node-RED Docker → http request 节点
+```
+
+**Windows 上创建 `opc_bridge.py`：**
+```python
+# -*- coding: utf-8 -*-
+from flask import Flask, jsonify, request
+import OpenOPC
+import logging
+logging.basicConfig(level=logging.INFO)
+
+app = Flask(__name__)
+opc = None
+
+@app.route('/connect')
+def connect():
+    global opc
+    opc = OpenOPC.client()
+    opc.connect('Freelance2000OPCServer.31.1')
+    return jsonify({'status': 'ok'})
+
+@app.route('/read')
+def read():
+    tag = request.args.get('tag')
+    if not tag:
+        return jsonify({'error': 'no tag'}), 400
+    val = opc.read(tag)
+    return jsonify({
+        'tag': tag,
+        'value': val[0][1],
+        'quality': val[0][2],
+        'timestamp': val[0][3]
+    })
+
+@app.route('/list')
+def list_tags():
+    tags = opc.list()
+    return jsonify(tags)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)
+```
+
+**启动桥接：**
+```bash
+C:\Python27\python.exe opc_bridge.py
+```
+
+**Node-RED 配置：**
+- 节点：`http request`
+- URL：`http://<windows-ip>:5000/read?tag=变量路径`
+- 输出：解析返回的 JSON 中的 `value` 字段
+
+---
+
+## 八、已知限制
 
 1. **必须设置 `NODE_OPTIONS=--openssl-legacy-provider`** — MD4/DES-ECB 被 OpenSSL 3.0 禁用
 2. **分批读取未实现** — 5000+ 点可能超时
 3. **补丁通过 postinstall 覆盖 node_modules 文件** — npm 重新安装会覆盖，需要重新打补丁
 4. **node-dcom 项目已废弃** — 最后更新 2019 年，不支持现代 Node.js
+5. **ABB Freelance DCOM 不兼容** — 纯 JS DCOM 栈无法完成 IRemUnknown 和 AddGroup 操作，必须通过 OpenOPC HTTP 桥接替代
 
 ---
 
-## 七、重要文件路径
+## 九、重要文件路径
 
 | 文件 | 作用 |
 |---|---|
 | `red/opc-da.js` | Node-RED 节点主逻辑 |
 | `red/opc-da.html` | Node-RED 节点 UI（含 ProgId 列表） |
 | `patches/apply.js` | postinstall 补丁脚本 |
-| `patches/node-dcom/*.js` | 5 个补丁文件 |
+| `patches/node-dcom/*.js` | 10 个补丁文件（含 RemActivation.js, type1message.js, remunknown.js 等） |
+| `opc-bridge.py` | （建议创建）OpenOPC HTTP 桥接脚本 |
 
 ---
 
-## 八、Git 提交历史
+## 十、Git 提交历史
 
 ```
 2ccba99 debug: add step logging to OPC-DA setup for ABB Freelance troubleshooting
