@@ -484,23 +484,29 @@ class ComServer extends Stub {
       console.log("[OPC-DA] getInterface: activationInterfaceMap is null");
     }
 
-    // IRemUnknown path — ABB Freelance returns truncated responses for interfaces
-    // it does not support (e.g. IOPCBrowseServerAddressSpace). Catch gracefully
-    // and throw a meaningful error instead of a cryptic RangeError.
+    // IRemUnknown path — make the call through the existing ComServer endpoint
+    // (shares auth/TCP context) instead of creating a new connection via stub2.
+    // Temporarily switch endpoint syntax to IRemUnknown and rebind.
     this.setObject(this.remunknownIPID);
 
     let reqUnknown = new RemUnknown(ipidOfTheTargetUnknown, iid, 5);
 
     try {
-      await this.session.getStub2().call(Endpoint.IDEMPOTENT, reqUnknown, this.info, 5);
+      let ep = this.getEndpoint();
+      let origUUID = ep.getSyntax().getUUID().toString();
+      ep.getSyntax().setUUID(new UUID("00000143-0000-0000-c000-000000000046"));
+      ep.getSyntax().setVersion(0, 0);
+      await ep.rebind(this.info);
+
+      await super.call(Endpoint.IDEMPOTENT, reqUnknown, this.info, 5);
+
+      // Restore endpoint syntax for normal OPC calls
+      ep.getSyntax().setUUID(new UUID(origUUID));
+      ep.getSyntax().setVersion(5, 7);
+      await ep.rebind(this.info);
     } catch (e) {
       debug("ComServer - getInterface (IRemUnknown): " + e);
-      let isRangeError = e instanceof RangeError;
-      let isUnknownPtr = e && e.message && e.message.indexOf("offset") !== -1;
-      if (isRangeError || isUnknownPtr) {
-        throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");
-      }
-      throw new Error(e);
+      throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");
     }
 
     retVal = await FrameworkHelper.instantiateComObject(this.session, reqUnknown.getInterfacePointer());
