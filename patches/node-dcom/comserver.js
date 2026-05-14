@@ -320,6 +320,7 @@ class ComServer extends Stub {
 
     if (this.serverActivation.activationsuccessful) {
       this.activationInterfaceMap = this.serverActivation.getInterfaceMap();
+      console.log("[OPC-DA] Activation returned " + (this.activationInterfaceMap ? this.activationInterfaceMap.size : 0) + " interface(s): " + (this.activationInterfaceMap ? Array.from(this.activationInterfaceMap.keys()).join(", ") : "none"));
     }
 
     if (attachcomplete && this.serverActivation.activationsuccessful) {
@@ -466,15 +467,21 @@ class ComServer extends Stub {
 
     // Check activation interface cache first — avoids IRemUnknown::RemQueryInterface
     // which ABB Freelance 2000 does not support (returns truncated responses).
-    if (this.activationInterfaceMap && this.activationInterfaceMap.has(iidUpper)) {
-      let cachedPtr = this.activationInterfaceMap.get(iidUpper);
-      retVal = await FrameworkHelper.instantiateComObject(this.session, cachedPtr);
-      try {
-        await retVal.addRef();
-      } catch(e) {
-        debug("ComServer.getInterface (cached): addRef failed (" + e + "), continuing anyway");
+    if (this.activationInterfaceMap) {
+      if (this.activationInterfaceMap.has(iidUpper)) {
+        let cachedPtr = this.activationInterfaceMap.get(iidUpper);
+        retVal = await FrameworkHelper.instantiateComObject(this.session, cachedPtr);
+        try {
+          await retVal.addRef();
+        } catch(e) {
+          debug("ComServer.getInterface (cached): addRef failed (" + e + "), continuing anyway");
+        }
+        return retVal;
+      } else {
+        console.log("[OPC-DA] getInterface: cache miss for IID " + iidUpper + ", cached IIDs:", Array.from(this.activationInterfaceMap.keys()).join(", "));
       }
-      return retVal;
+    } else {
+      console.log("[OPC-DA] getInterface: activationInterfaceMap is null");
     }
 
     this.setObject(this.remunknownIPID);
