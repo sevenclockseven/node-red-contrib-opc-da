@@ -114,8 +114,33 @@ module.exports = function (RED) {
             console.log("[OPC-DA Browse] Step 3 OK");
 
             console.log("[OPC-DA Browse] Step 4: getBrowser()...");
-            let opcBrowser = await opcServer.getBrowser();
-            console.log("[OPC-DA Browse] Step 4 OK");
+            let opcBrowser;
+            try {
+                opcBrowser = await opcServer.getBrowser();
+                console.log("[OPC-DA Browse] Step 4 OK");
+            } catch(e) {
+                // ABB Freelance: getBrowser failed. Try a dedicated activation
+                // requesting ONLY IOPCBrowseServerAddressSpace.
+                console.log("[OPC-DA Browse] Step 4 failed, trying dedicated browse activation...");
+                let browseSession = new Session();
+                browseSession = browseSession.createSession(params.domain, params.username, params.password);
+                browseSession.setGlobalSocketTimeout(params.timeout);
+                browseSession.useNTLMv2 = true;
+                let browseServer = new ComServer(new Clsid(params.clsid), params.address, browseSession, parseComVersion(params.comversion));
+                browseServer.requestedIIDs = [
+                    "39227004-A18F-4B57-8B0A-5235670F4468"  // IOPCBrowseServerAddressSpace only
+                ];
+                await browseServer.init();
+                if (browseServer.activationInterfaceMap && browseServer.activationInterfaceMap.size > 0) {
+                    let comObj = await browseServer.createInstance();
+                    let opcBrowser_alt = new opcda.OPCBrowser();
+                    opcBrowser_alt._comObj = comObj;
+                    opcBrowser = opcBrowser_alt;
+                    console.log("[OPC-DA Browse] Step 4 OK (dedicated activation)");
+                } else {
+                    throw new Error("Browse activation returned no interfaces");
+                }
+            }
 
             console.log("[OPC-DA Browse] Step 5: browseAllFlat()...");
             let items = await opcBrowser.browseAllFlat();

@@ -302,10 +302,9 @@ class ComServer extends Stub {
     this.getEndpoint().getSyntax().setVersion(0,0);
     await this.getEndpoint().rebind(this.info);
 
-    // Request all OPC DA interfaces during activation to avoid
-    // IRemUnknown::RemQueryInterface (unsupported by ABB Freelance 2000).
-    // Each returned InterfacePointer has the correct IPID for its IID.
-    let requestedIIDs = [
+    // Use instance-specific IID list if set (e.g. for dedicated browse activation)
+    // otherwise request all common OPC DA interfaces.
+    let requestedIIDs = this.requestedIIDs || [
       "39c13a4d-011e-11d0-9675-0020afd8adb3",  // IOPCServer
       "39227004-A18F-4B57-8B0A-5235670F4468",  // IOPCBrowseServerAddressSpace
       "f31dfde2-07b6-11d2-b2d8-0060083ba1fb",  // IOPCCommon
@@ -465,8 +464,7 @@ class ComServer extends Stub {
     let retVal = null;
     let iidUpper = iid.toUpperCase();
 
-    // Check activation interface cache first — avoids IRemUnknown::RemQueryInterface
-    // which ABB Freelance 2000 does not support (returns truncated responses).
+    // Check activation interface cache first
     if (this.activationInterfaceMap) {
       if (this.activationInterfaceMap.has(iidUpper)) {
         let cachedPtr = this.activationInterfaceMap.get(iidUpper);
@@ -477,52 +475,17 @@ class ComServer extends Stub {
           debug("ComServer.getInterface (cached): addRef failed (" + e + "), continuing anyway");
         }
         return retVal;
-      } else {
-        console.log("[OPC-DA] getInterface: cache miss for IID " + iidUpper + ", cached IIDs:", Array.from(this.activationInterfaceMap.keys()).join(", "));
       }
-    } else {
-      console.log("[OPC-DA] getInterface: activationInterfaceMap is null");
     }
 
-    // IRemUnknown path — use the ComServer's own Stub.call() which creates
-    // an endpoint on first use. Set syntax to IRemUnknown before calling so
-    // attach() creates the endpoint with the correct presentation context.
+    // Fall through to IRemUnknown
     this.setObject(this.remunknownIPID);
-
     let reqUnknown = new RemUnknown(ipidOfTheTargetUnknown, iid, 5);
 
     try {
-      let savedSyntax = this.syntax;
-      this.syntax = "00000143-0000-0000-c000-000000000046:0.0";
-      await super.call(Endpoint.IDEMPOTENT, reqUnknown, this.info, this.session.getGlobalSocketTimeout());
-      this.syntax = savedSyntax;
+      await this.session.getStub2().call(Endpoint.IDEMPOTENT, reqUnknown, this.info, this.session.getGlobalSocketTimeout());
     } catch (e) {
-      debug("ComServer - getInterface (IRemUnknown): " + e);
-      // Fallback: do a separate remote activation requesting only this IID.
-      // Some servers (e.g. ABB Freelance 2000) support the interface but
-      // don't return it via activation's multi-IID request and don't handle
-      // IRemUnknown::RemQueryInterface properly. A dedicated activation for
-      // the single IID retrieves the correct InterfacePointer.
-      try {
-        console.log("[OPC-DA] getInterface: fallback activation for " + iidUpper);
-        let fallbackActivation = new RemActivation(this.clsid, [iid]);
-        let ep = this.getEndpoint();
-        // Activation call must NOT have PFC_OBJECT_UUID flag
-        this.object = null;
-        let savedSyntax = this.syntax;
-        this.syntax = "4d9f4ab8-7d1c-11cf-861e-0020af6e7c57:0.0";
-        await super.call(Endpoint.IDEMPOTENT, fallbackActivation, this.info, this.session.getGlobalSocketTimeout());
-        this.syntax = savedSyntax;
-        if (fallbackActivation.isActivationSuccessful()) {
-          let fallbackPtr = fallbackActivation.getMInterfacePointer();
-          retVal = await FrameworkHelper.instantiateComObject(this.session, fallbackPtr);
-          try { await retVal.addRef(); } catch(ae) {}
-          console.log("[OPC-DA] getInterface: fallback activation OK for " + iidUpper);
-          return retVal;
-        }
-      } catch(fallbackErr) {
-        debug("ComServer - getInterface (fallback activation): " + fallbackErr);
-      }
+      debug("ComServer - getInterface: " + e);
       throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");
     }
 
