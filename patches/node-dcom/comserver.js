@@ -478,21 +478,41 @@ class ComServer extends Stub {
       }
     }
 
-    // Fall through to IRemUnknown.
-    // CRITICAL: set the object UUID on stub2 (NOT on this/ComServer).
-    // Stub2's call() reads getObject() from its own instance. Without
-    // this UUID, some servers (ABB Freelance) won't route the call.
-    let stub2 = this.session.getStub2();
-    if (!stub2.getObject()) {
-      stub2.setObject(this.remunknownIPID);
-    }
+    // IRemUnknown path — send through the MAIN connection (shared auth context).
+    // ABB Freelance returns E_ACCESSDENIED when IRemUnknown comes from a
+    // separate TCP connection (stub2). Use the ComServer's existing endpoint
+    // with temporary syntax switch to IRemUnknown via alter_context.
+    this.setObject(this.remunknownIPID);
     let reqUnknown = new RemUnknown(ipidOfTheTargetUnknown, iid, 5);
 
-    try {
-      await stub2.call(Endpoint.IDEMPOTENT, reqUnknown, this.info, this.session.getGlobalSocketTimeout());
-    } catch (e) {
-      debug("ComServer - getInterface: " + e);
-      throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");
+    let ep = this.getEndpoint();
+    if (ep) {
+      // Shared endpoint path — use the same TCP connection as OPC calls
+      let savedUUID = ep.getSyntax().getUUID().toString();
+      try {
+        ep.getSyntax().setUUID(new UUID("00000143-0000-0000-c000-000000000046"));
+        ep.getSyntax().setVersion(0, 0);
+        await ep.rebind(this.info);
+        await super.call(Endpoint.IDEMPOTENT, reqUnknown, this.info, this.session.getGlobalSocketTimeout());
+        // Don't restore syntax — next ComServer.call() will auto-detect and switch back
+      } catch (e) {
+        debug("ComServer - getInterface (shared ep): " + e);
+        // Restore syntax on failure
+        try {
+          ep.getSyntax().setUUID(new UUID(savedUUID));
+          ep.getSyntax().setVersion(5, 7);
+          await ep.rebind(this.info);
+        } catch(_) {}
+        throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");
+      }
+    } else {
+      // No endpoint yet — fall back to stub2 (separate connection)
+      try {
+        await this.session.getStub2().call(Endpoint.IDEMPOTENT, reqUnknown, this.info, this.session.getGlobalSocketTimeout());
+      } catch (e) {
+        debug("ComServer - getInterface (stub2 fallback): " + e);
+        throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");
+      }
     }
 
     retVal = await FrameworkHelper.instantiateComObject(this.session, reqUnknown.getInterfacePointer());
