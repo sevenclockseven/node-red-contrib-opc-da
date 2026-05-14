@@ -506,6 +506,39 @@ class ComServer extends Stub {
       await ep.rebind(this.info);
     } catch (e) {
       debug("ComServer - getInterface (IRemUnknown): " + e);
+      // Fallback: do a separate remote activation requesting only this IID.
+      // Some servers (e.g. ABB Freelance 2000) support the interface but
+      // don't return it via activation's multi-IID request and don't handle
+      // IRemUnknown::RemQueryInterface properly. A dedicated activation for
+      // the single IID retrieves the correct InterfacePointer.
+      try {
+        console.log("[OPC-DA] getInterface: fallback activation for " + iidUpper);
+        let fallbackActivation = new RemActivation(this.clsid, [iid]);
+        let ep = this.getEndpoint();
+        let origUUID = ep.getSyntax().getUUID().toString();
+        // Reset object UUID — activation call must not have PFC_OBJECT_UUID flag
+        let savedObject = this.object;
+        this.object = null;
+        // Switch to IObjectExporter syntax (needed for COM activation)
+        ep.getSyntax().setUUID(new UUID("4d9f4ab8-7d1c-11cf-861e-0020af6e7c57"));
+        ep.getSyntax().setVersion(0, 0);
+        await ep.rebind(this.info);
+        await super.call(Endpoint.IDEMPOTENT, fallbackActivation, this.info);
+        // Restore to original OPC call syntax
+        ep.getSyntax().setUUID(new UUID(origUUID));
+        ep.getSyntax().setVersion(5, 7);
+        await ep.rebind(this.info);
+        this.object = savedObject;
+        if (fallbackActivation.isActivationSuccessful()) {
+          let fallbackPtr = fallbackActivation.getMInterfacePointer();
+          retVal = await FrameworkHelper.instantiateComObject(this.session, fallbackPtr);
+          try { await retVal.addRef(); } catch(ae) {}
+          console.log("[OPC-DA] getInterface: fallback activation OK for " + iidUpper);
+          return retVal;
+        }
+      } catch(fallbackErr) {
+        debug("ComServer - getInterface (fallback activation): " + fallbackErr);
+      }
       throw new Error("Interface " + iidUpper + " is not supported or accessible on this OPC server");
     }
 
