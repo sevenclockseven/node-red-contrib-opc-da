@@ -484,26 +484,18 @@ class ComServer extends Stub {
       console.log("[OPC-DA] getInterface: activationInterfaceMap is null");
     }
 
-    // IRemUnknown path — make the call through the existing ComServer endpoint
-    // (shares auth/TCP context) instead of creating a new connection via stub2.
-    // Temporarily switch endpoint syntax to IRemUnknown and rebind.
+    // IRemUnknown path — use the ComServer's own Stub.call() which creates
+    // an endpoint on first use. Set syntax to IRemUnknown before calling so
+    // attach() creates the endpoint with the correct presentation context.
     this.setObject(this.remunknownIPID);
 
     let reqUnknown = new RemUnknown(ipidOfTheTargetUnknown, iid, 5);
 
     try {
-      let ep = this.getEndpoint();
-      let origUUID = ep.getSyntax().getUUID().toString();
-      ep.getSyntax().setUUID(new UUID("00000143-0000-0000-c000-000000000046"));
-      ep.getSyntax().setVersion(0, 0);
-      await ep.rebind(this.info);
-
+      let savedSyntax = this.syntax;
+      this.syntax = "00000143-0000-0000-c000-000000000046:0.0";
       await super.call(Endpoint.IDEMPOTENT, reqUnknown, this.info, 5);
-
-      // Restore endpoint syntax for normal OPC calls
-      ep.getSyntax().setUUID(new UUID(origUUID));
-      ep.getSyntax().setVersion(5, 7);
-      await ep.rebind(this.info);
+      this.syntax = savedSyntax;
     } catch (e) {
       debug("ComServer - getInterface (IRemUnknown): " + e);
       // Fallback: do a separate remote activation requesting only this IID.
@@ -515,20 +507,12 @@ class ComServer extends Stub {
         console.log("[OPC-DA] getInterface: fallback activation for " + iidUpper);
         let fallbackActivation = new RemActivation(this.clsid, [iid]);
         let ep = this.getEndpoint();
-        let origUUID = ep.getSyntax().getUUID().toString();
-        // Reset object UUID — activation call must not have PFC_OBJECT_UUID flag
-        let savedObject = this.object;
+        // Activation call must NOT have PFC_OBJECT_UUID flag
         this.object = null;
-        // Switch to IObjectExporter syntax (needed for COM activation)
-        ep.getSyntax().setUUID(new UUID("4d9f4ab8-7d1c-11cf-861e-0020af6e7c57"));
-        ep.getSyntax().setVersion(0, 0);
-        await ep.rebind(this.info);
-        await super.call(Endpoint.IDEMPOTENT, fallbackActivation, this.info);
-        // Restore to original OPC call syntax
-        ep.getSyntax().setUUID(new UUID(origUUID));
-        ep.getSyntax().setVersion(5, 7);
-        await ep.rebind(this.info);
-        this.object = savedObject;
+        let savedSyntax = this.syntax;
+        this.syntax = "4d9f4ab8-7d1c-11cf-861e-0020af6e7c57:0.0";
+        await super.call(Endpoint.IDEMPOTENT, fallbackActivation, this.info, 5);
+        this.syntax = savedSyntax;
         if (fallbackActivation.isActivationSuccessful()) {
           let fallbackPtr = fallbackActivation.getMInterfacePointer();
           retVal = await FrameworkHelper.instantiateComObject(this.session, fallbackPtr);
